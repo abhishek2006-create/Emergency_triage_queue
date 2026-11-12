@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Emergency Triage Queue
 
 Comparative implementation project for an indexed binary min-heap, a lazy-invalidation priority queue, and an unsorted-array oracle.
@@ -18,3 +19,7 @@ ctest --test-dir build --output-on-failure
 ```
 
 Implementations A, B, and the oracle must satisfy the identical rules in `docs/interface.md` before comparative benchmarks are run.
+=======
+# Emergency_triage_queue
+
+>>>>>>> 031c4f028287da5aacefcec3cb1e3211e81a56d3
