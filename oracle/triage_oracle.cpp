@@ -1,4 +1,4 @@
-#include "triage_oracle.hpp"
+#include "../triage_oracle.hpp"
 #include <cassert>
 #include <iostream>
 #include <limits>

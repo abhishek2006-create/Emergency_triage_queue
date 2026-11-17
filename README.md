@@ -1,25 +1,50 @@
-<<<<<<< HEAD
 # Emergency Triage Queue
 
-Comparative implementation project for an indexed binary min-heap, a lazy-invalidation priority queue, and an unsorted-array oracle.
+This C++11 project compares an indexed binary min-heap, a lazy-invalidation binary heap, and an unsorted-array oracle. It also includes queue checks, a patient triage simulator, and a benchmark.
 
-## Layout
+## Requirements
 
-- `docs/interface.md` — authoritative interface contract for all queue implementations.
-- `include/triage/priority_queue.hpp` — C++ interface matching the contract.
-- `src/` — implementation location for the three queues and simulator.
-- `tests/contract_example.cpp` — tiny shared behavioural test.
+- CMake 3.20 or newer
+- A C++11 compiler (MinGW g++ works on Windows)
 
 ## Build
 
-```bash
+From the project root in PowerShell:
+
+```powershell
 cmake -S . -B build
 cmake --build build
+```
+
+## Run the integration check
+
+```powershell
+.\build\test_integration.exe
+```
+
+Or run registered checks with:
+
+```powershell
 ctest --test-dir build --output-on-failure
 ```
 
-Implementations A, B, and the oracle must satisfy the identical rules in `docs/interface.md` before comparative benchmarks are run.
-=======
-# Emergency_triage_queue
+## Run the triage simulation
 
->>>>>>> 031c4f028287da5aacefcec3cb1e3211e81a56d3
+Run this from the project root so the CSV is written under `results`:
+
+```powershell
+.\build\run_simulator.exe 20261116 results\simulator.csv
+```
+
+The simulator compares no-aging, linear-aging, and stepwise-aging policies over a 30-day simulated horizon. It prints summary statistics and writes per-severity wait statistics to the CSV.
+
+To run the benchmark:
+
+```powershell
+.\build\analyst_benchmark.exe 20000 20261116 results\analyst.csv
+```
+
+<!-- 
+g++ -std=c++11 -O2 -Wall -Wextra -pedantic -Isrc simulator/run_simulator.cpp src/structA/indexed_heap.cpp src/structA/locator_table.cpp src/structB/lazy_heap.cpp -o results\simulator.exe
+
+.\results\simulator.exe 20261116 results\simulator.csv -->
