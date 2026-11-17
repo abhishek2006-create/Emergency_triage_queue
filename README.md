@@ -1,11 +1,11 @@
 # Emergency Triage Queue
 
-This C++11 project compares an indexed binary min-heap, a lazy-invalidation binary heap, and an unsorted-array oracle. It also includes queue checks, a patient triage simulator, and a benchmark.
+This C++11 project compares an indexed binary min-heap, a lazy-invalidation binary heap, and an unsorted-array oracle. It includes queue checks, a patient triage simulator, and a benchmark.
 
 ## Requirements
 
 - CMake 3.20 or newer
-- A C++11 compiler (MinGW g++ works on Windows)
+- A C++11 compiler
 
 ## Build
 
@@ -30,21 +30,16 @@ ctest --test-dir build --output-on-failure
 
 ## Run the triage simulation
 
-Run this from the project root so the CSV is written under `results`:
+Run from the project root so the CSV is written under `results`:
 
 ```powershell
-.\build\run_simulator.exe 20261116 results\simulator.csv
+.\build\run_simulator.exe 20261116 results\simulator.csv 30
 ```
 
-The simulator compares no-aging, linear-aging, and stepwise-aging policies over a 30-day simulated horizon. It prints summary statistics and writes per-severity wait statistics to the CSV.
+The arguments are seed, output CSV path, and simulation duration in days. Change `30` to any positive number of days. The simulator prints the requested duration and summary statistics, then writes per-severity wait statistics to the CSV. It generates arrivals throughout the requested horizon.
 
-To run the benchmark:
+## Run the benchmark
 
 ```powershell
 .\build\analyst_benchmark.exe 20000 20261116 results\analyst.csv
 ```
-
-<!-- 
-g++ -std=c++11 -O2 -Wall -Wextra -pedantic -Isrc simulator/run_simulator.cpp src/structA/indexed_heap.cpp src/structA/locator_table.cpp src/structB/lazy_heap.cpp -o results\simulator.exe
-
-.\results\simulator.exe 20261116 results\simulator.csv -->
