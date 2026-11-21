@@ -6,6 +6,13 @@ This C++11 project compares an indexed binary min-heap, a lazy-invalidation bina
 
 - CMake 3.20 or newer
 - A C++11 compiler
+- SQLite3 development library
+
+If you are using MSYS2 with the UCRT64 environment, SQLite3 can be installed with:
+
+```powershell
+pacman -S mingw-w64-ucrt-x86_64-sqlite3
+```
 
 ## Build
 
@@ -28,6 +35,8 @@ Or run registered checks with:
 ctest --test-dir build --output-on-failure
 ```
 
+The registered checks include the integration test, scale test, Oracle unit test, and database replay test.
+
 ## Run the triage simulation
 
 Run from the project root so the CSV is written under `results`:
@@ -43,3 +52,33 @@ The arguments are seed, output CSV path, and simulation duration in days. Change
 ```powershell
 .\build\analyst_benchmark.exe 20000 20261116 results\analyst.csv
 ```
+
+## Run the database replay
+
+The project includes a synthetic SQLite database containing 10,000 patient records and 20,000 queue events.
+
+The replay program processes the events in chronological order and compares the results of the indexed heap, lazy heap, and Oracle.
+
+Run from the project root:
+
+```powershell
+.\build\database_replay.exe .\data\emergency_triage_database_v2.db .\build\database_replay.csv
+```
+
+The program checks the queue operations and writes the replay results and timing measurements to the specified CSV file.
+
+The database is synthetic benchmark data and does not contain real patient information. More details about the dataset and its generation are available in `data\README_database_v2.txt`.
+
+## Run randomized differential testing
+
+The project also includes a randomized differential test that compares Structure A, Structure B, and the Oracle using generated queue operations.
+
+Run 100,000 operations with a fixed seed:
+
+```powershell
+.\build\oracle_differential.exe 100000 20261116
+```
+
+The arguments are the number of operations and the random seed. Using the same seed makes the test reproducible.
+
+The test compares operation results, queue sizes, and invariants across all three implementations.
