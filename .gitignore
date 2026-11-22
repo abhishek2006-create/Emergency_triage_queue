@@ -12,3 +12,4 @@ results/*.exe
 
 # IDE files
 .vscode/
+/build/

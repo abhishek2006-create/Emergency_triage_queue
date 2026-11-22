@@ -1,6 +1,6 @@
 # D4: Indexed Heap Locator Invariant and Correctness
 
-Author: Oracle owner (enter team member name before submission)
+Author: Abhimanyu Kumar (250002005)
 
 ## Definitions
 

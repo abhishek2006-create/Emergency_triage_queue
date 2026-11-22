@@ -9,6 +9,10 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <ctime>
+#include <cstdio>
+#include <cctype>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -35,6 +39,7 @@ struct ReplayEvent {
 struct Dataset {
     std::map<triage::PatientId, PatientRow> patients;
     std::vector<ReplayEvent> events;
+    bool treatById;
 };
 
 void checkSql(int rc, sqlite3* db, const std::string& where) {
@@ -43,40 +48,129 @@ void checkSql(int rc, sqlite3* db, const std::string& where) {
     }
 }
 
+
+bool hasColumn(sqlite3* db, const char* table, const char* column) {
+    const std::string sql = std::string("PRAGMA table_info(") + table + ")";
+    sqlite3_stmt* stmt = 0;
+    checkSql(sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, 0), db, "inspect schema");
+    bool found = false;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        const unsigned char* name = sqlite3_column_text(stmt, 1);
+        if (name && std::string(reinterpret_cast<const char*>(name)) == column) {
+            found = true;
+            break;
+        }
+    }
+    sqlite3_finalize(stmt);
+    return found;
+}
+
+triage::PatientId parsePatientId(const unsigned char* raw) {
+    if (!raw) throw std::runtime_error("NULL patient_id");
+    const std::string value(reinterpret_cast<const char*>(raw));
+    std::size_t pos = 0;
+    while (pos < value.size() && !std::isdigit(static_cast<unsigned char>(value[pos]))) ++pos;
+    if (pos == value.size()) throw std::runtime_error("patient_id has no numeric component: " + value);
+    std::uint64_t id = 0;
+    for (; pos < value.size(); ++pos) {
+        if (!std::isdigit(static_cast<unsigned char>(value[pos])))
+            throw std::runtime_error("patient_id has a non-numeric suffix: " + value);
+        const unsigned digit = static_cast<unsigned>(value[pos] - '0');
+        if (id > (std::numeric_limits<std::uint64_t>::max() - digit) / 10)
+            throw std::runtime_error("patient_id is out of range: " + value);
+        id = id * 10 + digit;
+    }
+    if (id == 0) throw std::runtime_error("patient_id must map to a positive integer: " + value);
+    return static_cast<triage::PatientId>(id);
+}
+
+triage::Timestamp parseUtcTimestamp(const unsigned char* raw) {
+    if (!raw) throw std::runtime_error("NULL timestamp");
+    const std::string value(reinterpret_cast<const char*>(raw));
+    int year=0, month=0, day=0, hour=0, minute=0, second=0;
+    if (std::sscanf(value.c_str(), "%4d-%2d-%2dT%2d:%2d:%2d",
+                    &year, &month, &day, &hour, &minute, &second) != 6)
+        throw std::runtime_error("unsupported ISO-8601 timestamp: " + value);
+    // Convert the civil date to days since 1970-01-01 (UTC).
+    year -= month <= 2;
+    const int era = (year >= 0 ? year : year - 399) / 400;
+    const unsigned yoe = static_cast<unsigned>(year - era * 400);
+    const unsigned mp = static_cast<unsigned>(month + (month > 2 ? -3 : 9));
+    const unsigned doy = (153 * mp + 2) / 5 + static_cast<unsigned>(day) - 1;
+    const unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    const long long days = static_cast<long long>(era) * 146097 + doe - 719468;
+    long long seconds = days * 86400 + hour * 3600 + minute * 60 + second;
+    // Apply an optional ISO-8601 timezone offset.
+    std::size_t zone = value.find_last_of("+-");
+    if (zone != std::string::npos && zone > 10 && value.size() >= zone + 6) {
+        int zh=0, zm=0;
+        if (std::sscanf(value.c_str()+zone+1, "%2d:%2d", &zh, &zm) == 2) {
+            const int offset = (zh * 60 + zm) * 60;
+            seconds += value[zone] == '+' ? -offset : offset;
+        }
+    }
+    return static_cast<triage::Timestamp>(seconds);
+}
+
 Dataset loadDataset(const std::string& path, std::uint64_t& elapsedNs) {
     const auto start = std::chrono::steady_clock::now();
     sqlite3* db = 0;
     checkSql(sqlite3_open_v2(path.c_str(), &db, SQLITE_OPEN_READONLY, 0), db, "open database");
     Dataset data;
+    const bool patientMinutes = hasColumn(db, "patients", "arrival_minute");
+    const bool eventMinutes = hasColumn(db, "queue_events", "event_time_minute");
+    data.treatById = !eventMinutes;
+    const bool hasEventSeq = hasColumn(db, "queue_events", "event_seq");
+    const char* patientArrivalColumn = patientMinutes ? "arrival_minute" : "arrival_time_utc";
+    const char* eventTimeColumn = eventMinutes ? "event_time_minute" : "event_time_utc";
+    const char* eventSeqColumn = hasEventSeq ? "event_seq" : "event_id";
+    if (!hasColumn(db, "patients", patientArrivalColumn) ||
+        !hasColumn(db, "patients", "initial_priority_key") ||
+        !hasColumn(db, "queue_events", eventTimeColumn) ||
+        !hasColumn(db, "queue_events", eventSeqColumn))
+        throw std::runtime_error("unsupported SQLite schema: expected project v2 or uploaded dataset columns");
 
+    std::map<std::string, triage::PatientId> idMap;
     sqlite3_stmt* patientStmt = 0;
-    const char* patientSql =
-        "SELECT patient_id, arrival_minute, initial_priority_key "
-        "FROM patients ORDER BY patient_id";
-    checkSql(sqlite3_prepare_v2(db, patientSql, -1, &patientStmt, 0), db, "prepare patients");
+    const std::string patientSql = std::string("SELECT patient_id, ") + patientArrivalColumn +
+        ", initial_priority_key FROM patients ORDER BY patient_id";
+    checkSql(sqlite3_prepare_v2(db, patientSql.c_str(), -1, &patientStmt, 0), db, "prepare patients");
     int rc = SQLITE_OK;
     while ((rc = sqlite3_step(patientStmt)) == SQLITE_ROW) {
-        PatientRow p;
-        p.id = static_cast<triage::PatientId>(sqlite3_column_int64(patientStmt, 0));
-        p.arrival = static_cast<triage::Timestamp>(sqlite3_column_int64(patientStmt, 1));
-        p.initial_key = static_cast<triage::PriorityKey>(sqlite3_column_int64(patientStmt, 2));
-        if (!data.patients.insert(std::make_pair(p.id, p)).second)
-            throw std::runtime_error("duplicate patient_id in patients table");
+        const unsigned char* rawId = sqlite3_column_text(patientStmt, 0);
+        if (!rawId) throw std::runtime_error("NULL patient_id in patients table");
+        const std::string externalId(reinterpret_cast<const char*>(rawId));
+        const triage::PatientId id = parsePatientId(rawId);
+        triage::Timestamp arrival = patientMinutes
+            ? static_cast<triage::Timestamp>(sqlite3_column_int64(patientStmt, 1))
+            : parseUtcTimestamp(sqlite3_column_text(patientStmt, 1));
+        PatientRow patient = {id, arrival, static_cast<triage::PriorityKey>(sqlite3_column_int64(patientStmt, 2))};
+        if (!idMap.insert(std::make_pair(externalId, id)).second ||
+            !data.patients.insert(std::make_pair(id, patient)).second)
+            throw std::runtime_error("duplicate patient identifier after numeric mapping: " + externalId);
     }
     checkSql(rc, db, "read patients");
     sqlite3_finalize(patientStmt);
 
     sqlite3_stmt* eventStmt = 0;
-    const char* eventSql =
-        "SELECT event_seq, event_time_minute, patient_id, operation, "
+    const std::string eventSql = std::string("SELECT ") + eventSeqColumn +
+        ", " + eventTimeColumn + ", patient_id, operation, "
         "COALESCE(old_priority_key, 0), COALESCE(new_priority_key, 0) "
-        "FROM queue_events ORDER BY event_seq";
-    checkSql(sqlite3_prepare_v2(db, eventSql, -1, &eventStmt, 0), db, "prepare events");
+        "FROM queue_events ORDER BY " + eventSeqColumn;
+    checkSql(sqlite3_prepare_v2(db, eventSql.c_str(), -1, &eventStmt, 0), db, "prepare events");
     while ((rc = sqlite3_step(eventStmt)) == SQLITE_ROW) {
         ReplayEvent e;
         e.seq = sqlite3_column_int64(eventStmt, 0);
-        e.event_minute = sqlite3_column_int64(eventStmt, 1);
-        e.patient_id = static_cast<triage::PatientId>(sqlite3_column_int64(eventStmt, 2));
+        e.event_minute = eventMinutes
+            ? static_cast<triage::Timestamp>(sqlite3_column_int64(eventStmt, 1))
+            : parseUtcTimestamp(sqlite3_column_text(eventStmt, 1));
+        const unsigned char* rawId = sqlite3_column_text(eventStmt, 2);
+        if (!rawId) throw std::runtime_error("NULL patient_id in queue_events");
+        const std::string externalId(reinterpret_cast<const char*>(rawId));
+        std::map<std::string, triage::PatientId>::const_iterator mapped = idMap.find(externalId);
+        if (mapped == idMap.end())
+            throw std::runtime_error("queue event references unknown patient_id: " + externalId);
+        e.patient_id = mapped->second;
         const unsigned char* opText = sqlite3_column_text(eventStmt, 3);
         const std::string op = opText ? reinterpret_cast<const char*>(opText) : "";
         if (op == "INSERT") e.op = Op::Insert;
@@ -88,14 +182,15 @@ Dataset loadDataset(const std::string& path, std::uint64_t& elapsedNs) {
         e.new_key = static_cast<triage::PriorityKey>(sqlite3_column_int64(eventStmt, 5));
         if (data.events.empty() || e.seq > data.events.back().seq) {
             if (!data.events.empty() && e.event_minute < data.events.back().event_minute)
-                throw std::runtime_error("event_time_minute is not chronological");
+                throw std::runtime_error("event timestamps are not chronological");
             data.events.push_back(e);
         } else {
-            throw std::runtime_error("event_seq is not strictly increasing");
+            throw std::runtime_error("event sequence is not strictly increasing");
         }
     }
     checkSql(rc, db, "read events");
     sqlite3_finalize(eventStmt);
+
     sqlite3_close(db);
 
     elapsedNs = static_cast<std::uint64_t>(
@@ -133,26 +228,42 @@ ReplayStats<Queue> replay(const Dataset& data, const char* label) {
             std::map<triage::PatientId, triage::PriorityKey>::iterator current = activeKeys.find(e.patient_id);
             if (current == activeKeys.end())
                 throw std::runtime_error(std::string(label) + ": REVISION references inactive patient");
-            if (current->second != e.old_key || e.new_key >= e.old_key)
-                throw std::runtime_error("revision old/new key mismatch in source trace");
-            err = q.decreaseKey(e.patient_id, e.new_key);
+            if (current->second != e.old_key)
+                throw std::runtime_error("REVISION old key does not match active replay state");
+            if (e.new_key < e.old_key) {
+                err = q.decreaseKey(e.patient_id, e.new_key);
+            } else if (e.new_key > e.old_key) {
+                // The shared queue API exposes decreaseKey only. Model an
+                // arbitrary priority revision as delete + reinsert, preserving
+                // the original arrival timestamp and patient identity.
+                std::map<triage::PatientId, PatientRow>::const_iterator patient = data.patients.find(e.patient_id);
+                if (patient == data.patients.end())
+                    throw std::runtime_error("REVISION references missing patient record");
+                err = q.deletePatient(e.patient_id);
+                if (err == triage::QueueError::none) {
+                    triage::QueueEntry revised = {e.patient_id, e.new_key, patient->second.arrival};
+                    err = q.insert(revised);
+                }
+            }
             if (err == triage::QueueError::none) current->second = e.new_key;
         } else if (e.op == Op::Treat) {
             std::map<triage::PatientId, triage::PriorityKey>::iterator current = activeKeys.find(e.patient_id);
             if (current == activeKeys.end() || current->second != e.old_key)
                 throw std::runtime_error("TREAT expected patient/key does not match active replay state");
-            triage::ExtractResult result = q.extractMin();
-            if (!result.ok)
-                throw std::runtime_error(std::string(label) + ": unexpected empty queue on TREAT");
-            if (result.entry.patient_id != e.patient_id || result.entry.priority_key != e.old_key)
-                throw std::runtime_error(std::string(label) + ": extractMin disagrees with expected TREAT patient/key");
-            activeKeys.erase(current);
-            ++successful;
-            if (q.size() != activeKeys.size())
-                throw std::runtime_error(std::string(label) + ": live size mismatch after TREAT");
-            if ((i + 1) % 1000 == 0 && !q.validate())
-                throw std::runtime_error(std::string(label) + ": invariant validation failed");
-            continue;
+            if (data.treatById) {
+                // This dataset records the patient selected by its external
+                // event trace; TREAT is an explicit removal, not an extractMin
+                // assertion. The legacy v2 trace records the expected minimum.
+                err = q.deletePatient(e.patient_id);
+                if (err == triage::QueueError::none) activeKeys.erase(current);
+            } else {
+                triage::ExtractResult result = q.extractMin();
+                if (!result.ok)
+                    throw std::runtime_error(std::string(label) + ": unexpected empty queue on TREAT");
+                if (result.entry.patient_id != e.patient_id || result.entry.priority_key != e.old_key)
+                    throw std::runtime_error(std::string(label) + ": TREAT expected extractMin patient/key mismatch");
+                activeKeys.erase(current);
+            }
         } else {
             std::map<triage::PatientId, triage::PriorityKey>::iterator current = activeKeys.find(e.patient_id);
             if (current == activeKeys.end() || current->second != e.old_key)

@@ -38,6 +38,13 @@ target_link_libraries(oracle_differential PRIVATE triage_queues)
 add_executable(database_replay database/database_replay.cpp)
 target_link_libraries(database_replay PRIVATE triage_queues SQLite3::SQLite3)
 
+add_executable(run_adversary
+    adversary/run_adversary.cpp
+    adversary/adversary.cpp
+)
+
+target_link_libraries(run_adversary PRIVATE triage_queues)
+
 enable_testing()
 add_test(NAME integration COMMAND test_integration)
 add_test(NAME scale COMMAND test_scale)
@@ -48,4 +55,24 @@ add_test(
     COMMAND database_replay
         "${CMAKE_SOURCE_DIR}/data/emergency_triage_database_v2.db"
         "${CMAKE_BINARY_DIR}/database_replay.csv"
+)
+
+add_test(
+    NAME adversary
+    COMMAND run_adversary
+        100000
+        20261116
+        "${CMAKE_BINARY_DIR}/adversary_results.csv"
+)
+
+add_test(
+    NAME million_differential
+    COMMAND test_million
+)
+
+add_test(
+    NAME uploaded_dataset_replay
+    COMMAND database_replay
+        "${CMAKE_SOURCE_DIR}/data/emergency_triage_synthetic.db"
+        "${CMAKE_BINARY_DIR}/database_replay_uploaded_dataset.csv"
 )
