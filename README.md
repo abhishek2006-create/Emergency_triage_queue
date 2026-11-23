@@ -1,5 +1,5 @@
 # Emergency Triage Queue
-
+<video controls src="demo.mp4" title="Title"></video>
 A C++11 project comparing three priority-queue implementations for an emergency triage workload:
 
 - **Structure A:** indexed binary min-heap with an open-addressing locator table.
