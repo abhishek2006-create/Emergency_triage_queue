@@ -14,6 +14,8 @@ The project includes queue tests, randomized differential testing, a patient tri
 
 ## Team and contributions
 
+## Team Name : CodeCraft
+
 | Role | Team member | Roll number | Responsibility |
 |---|---|---:|---|
 | D1 – Structure A | Ankit | 250041003 | Indexed binary min-heap and locator |
