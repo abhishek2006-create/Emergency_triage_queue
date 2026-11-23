@@ -1,5 +1,5 @@
 # Emergency Triage Queue
-
+<video controls src="demo.mp4" title="Title"></video>
 This C++11 project compares an indexed binary min-heap, a lazy-invalidation binary heap, and an unsorted-array oracle. It includes queue checks, a patient triage simulator, and a benchmark.
 
 ## Requirements
