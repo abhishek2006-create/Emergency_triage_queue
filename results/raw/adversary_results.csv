@@ -1,0 +1,8 @@
+scenario,n,seed,comparisons,swaps,live,physical,peak_physical,compaction_events,low_patient_treatment_minute
+sift_up,100000,20261116,1468946,1468946,0,0,0,0,0
+extract_shuffled,100000,20261116,2831586,1400464,0,0,0,0,0
+revisions,100000,20261116,0,0,5000,9981,10000,19,0
+departures,20000,20261116,0,0,0,0,0,0,0
+starvation_none,120,20261116,0,0,0,0,0,0,-1
+starvation_linear,120,20261116,0,0,0,0,0,0,30
+starvation_step,120,20261116,0,0,0,0,0,0,150

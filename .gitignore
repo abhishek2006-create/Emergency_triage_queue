@@ -1,1 +1,15 @@
+# Existing results
 results/*.exe
+
+# CMake build directories
+/build/
+/build-*/
+/cmake-build-*/
+
+# SQLite temporary files
+*.db-shm
+*.db-wal
+
+# IDE files
+.vscode/
+/build/

@@ -1,6 +1,6 @@
 # D1: Indexed Heap Complexity Proof
 
-Author: Structure A owner (enter team member name before submission)
+Author: Ankit(250041003)
 
 ## Definitions and assumptions
 
